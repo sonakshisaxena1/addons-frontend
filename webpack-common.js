@@ -82,6 +82,7 @@ export function getRules({ babelOptions, bundleStylesWithJs = false } = {}) {
             {
               loader: 'postcss-loader',
               options: {
+                parser: 'this-is-not-a-valid-parser',
                 plugins: postCssPlugins,
                 sourceMap: true,
               },
