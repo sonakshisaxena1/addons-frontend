@@ -20,18 +20,22 @@ import {
   DOWNLOAD_FAILED,
   DOWNLOAD_PROGRESS,
   ENABLED,
+  ENABLE_ACTION,
   ERROR,
   FATAL_ERROR,
   FATAL_INSTALL_ERROR,
   FATAL_UNINSTALL_ERROR,
+  INSTALLING,
   INSTALL_ACTION,
-  INSTALL_ERROR,
   INSTALL_CANCELLED,
+  INSTALL_CANCELLED_ACTION,
+  INSTALL_ERROR,
+  INSTALL_ERRORED_ACTION,
   INSTALL_FAILED,
+  INSTALL_FAILED_ACTION,
   INSTALL_STARTED_ACTION,
   INSTALL_THEME_CATEGORY,
   INSTALL_THEME_STARTED_CATEGORY,
-  INSTALLING,
   OS_ALL,
   OS_ANDROID,
   OS_LINUX,
@@ -40,9 +44,9 @@ import {
   SET_ENABLE_NOT_AVAILABLE,
   START_DOWNLOAD,
   TRACKING_TYPE_THEME,
-  UNINSTALL_ACTION,
   UNINSTALLED,
   UNINSTALLING,
+  UNINSTALL_ACTION,
   UNKNOWN,
 } from 'core/constants';
 import * as addonManager from 'core/addonManager';
@@ -99,7 +103,7 @@ export function installTheme(
   }
 }
 
-export function makeProgressHandler(dispatch, guid) {
+export function makeProgressHandler({ _tracking, dispatch, guid, name, type }) {
   return (addonInstall, event) => {
     if (addonInstall.state === 'STATE_DOWNLOADING') {
       const downloadProgress = parseInt(
@@ -122,10 +126,22 @@ export function makeProgressHandler(dispatch, guid) {
         type: INSTALL_CANCELLED,
         payload: { guid },
       });
+
+      _tracking.sendEvent({
+        action: getAddonTypeForTracking(type),
+        category: getAddonEventCategory(type, INSTALL_CANCELLED_ACTION),
+        label: name,
+      });
     } else if (event.type === 'onInstallFailed') {
       dispatch({
         type: INSTALL_ERROR,
         payload: { guid, error: INSTALL_FAILED },
+      });
+
+      _tracking.sendEvent({
+        action: getAddonTypeForTracking(type),
+        category: getAddonEventCategory(type, INSTALL_FAILED_ACTION),
+        label: name,
       });
     }
   };
@@ -383,10 +399,8 @@ export class WithInstallHelpers extends React.Component {
           dispatch(setInstallState({ ...payload, status }));
         },
         (error) => {
-          log.info(
-            oneLine`Add-on "${guid}" not found so setting status to
-          UNINSTALLED; exact error: ${error}`,
-          );
+          log.info(oneLine`Add-on "${guid}" not found so setting status to
+            UNINSTALLED; exact error: ${error}`);
           dispatch(setInstallState({ ...payload, status: UNINSTALLED }));
         },
       )
@@ -405,11 +419,25 @@ export class WithInstallHelpers extends React.Component {
   }
 
   enable() {
-    const { _addonManager, dispatch, guid, iconUrl, name } = this.props;
+    const {
+      _addonManager,
+      _tracking,
+      dispatch,
+      guid,
+      iconUrl,
+      name,
+      type,
+    } = this.props;
 
     return _addonManager
       .enable(guid)
       .then(() => {
+        _tracking.sendEvent({
+          action: getAddonTypeForTracking(type),
+          category: getAddonEventCategory(type, ENABLE_ACTION),
+          label: name,
+        });
+
         if (!_addonManager.hasPermissionPromptsEnabled()) {
           this.showInfo({ name, iconUrl });
         }
@@ -418,7 +446,8 @@ export class WithInstallHelpers extends React.Component {
         if (err && err.message === SET_ENABLE_NOT_AVAILABLE) {
           log.info(`addon.setEnabled not available. Unable to enable ${guid}`);
         } else {
-          log.error(err);
+          log.error(`Error while trying to enable ${guid}:`, err);
+
           dispatch(
             setInstallState({
               guid,
@@ -465,7 +494,13 @@ export class WithInstallHelpers extends React.Component {
       .then((installURL) => {
         return _addonManager.install(
           installURL,
-          makeProgressHandler(dispatch, guid),
+          makeProgressHandler({
+            _tracking,
+            dispatch,
+            guid,
+            name,
+            type,
+          }),
           { src: defaultInstallSource },
         );
       })
@@ -481,6 +516,7 @@ export class WithInstallHelpers extends React.Component {
       })
       .catch((error) => {
         log.error(`Install error: ${error}`);
+
         dispatch(
           setInstallState({
             guid,
@@ -488,6 +524,11 @@ export class WithInstallHelpers extends React.Component {
             error: FATAL_INSTALL_ERROR,
           }),
         );
+        _tracking.sendEvent({
+          action: getAddonTypeForTracking(type),
+          category: getAddonEventCategory(type, INSTALL_ERRORED_ACTION),
+          label: name,
+        });
       });
   }
 
@@ -516,8 +557,9 @@ export class WithInstallHelpers extends React.Component {
           label: name,
         });
       })
-      .catch((err) => {
-        log.error(err);
+      .catch((error) => {
+        log.error(`Uninstall error: ${error}`);
+
         dispatch(
           setInstallState({
             guid,

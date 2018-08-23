@@ -115,6 +115,10 @@ export class AMInstallButtonBase extends React.Component<InternalProps> {
       addonName: addon.name,
       type: addon.type,
     });
+    this.trackInstallSucceeded({
+      addonName: addon.name,
+      type: addon.type,
+    });
 
     return false;
   };
